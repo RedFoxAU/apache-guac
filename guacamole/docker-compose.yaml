@@ -1,35 +1,149 @@
 ---
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: guacamole_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      # Database data persistence
+      - ${WORKING_DIR}/guacamole/postgres/data:/var/lib/postgresql/data
+      # Database initialization scripts
+      - ${WORKING_DIR}/guacamole/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      # PostgreSQL configuration
+      - ${WORKING_DIR}/guacamole/postgres/config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - guacamole_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ports:
+      - "127.0.0.1:5432:5432"  # Only bind to localhost for security
+
+  # Guacamole Daemon
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: guacamole_daemon
+    restart: unless-stopped
+    volumes:
+      # Guacd configuration and logs
+      - ${WORKING_DIR}/guacamole/guacd/config:/config:ro
+      - ${WORKING_DIR}/guacamole/guacd/logs:/var/log/guacd
+      # Drive mapping for file transfers
+      - ${WORKING_DIR}/guacamole/guacd/drive:/drive
+      # Recording storage
+      - ${WORKING_DIR}/guacamole/guacd/recordings:/recordings
+    networks:
+      - guacamole_net
+    environment:
+      GUACD_LOG_LEVEL: ${GUACD_LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 4822 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Guacamole Web Application
   guacamole:
-    image: guacamole/guacamole
-    container_name: guacamole
+    image: guacamole/guacamole:latest
+    container_name: guacamole_webapp
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${GUACAMOLE_PORT:-8080}:8080"
     environment:
+      # Database connection
       GUACD_HOSTNAME: guacd
+      GUACD_PORT: 4822
       POSTGRES_HOSTNAME: postgres
-      POSTGRES_DATABASE: postdatab
-      POSTGRES_USER: postuser
-      POSTGRES_PASSWORD: postpassword
-      WEBAPP_CONTEXT: ROOT
-    depends_on:
-      - guacd
-      - postgres
-
-  guacd:
-    image: guacamole/guacd
-    container_name: guacd
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:13
-    container_name: postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: postdatab
-      POSTGRES_USER: postuser
-      POSTGRES_PASSWORD: postpassword
+      POSTGRES_DATABASE: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      
+      # Web application settings
+      WEBAPP_CONTEXT: ${WEBAPP_CONTEXT:-ROOT}
+      GUACAMOLE_HOME: /config
+      
+      # Optional environment variables
+      REMOTE_IP_VALVE_ENABLED: ${REMOTE_IP_VALVE_ENABLED:-false}
+      PROXY_ALLOWED_IPS_REGEX: ${PROXY_ALLOWED_IPS_REGEX:-}
+      
+      # Timezone
+      TZ: ${TZ:-UTC}
+      
+      # LDAP settings (if enabled)
+      LDAP_HOSTNAME: ${LDAP_HOSTNAME:-}
+      LDAP_PORT: ${LDAP_PORT:-389}
+      LDAP_USER_BASE_DN: ${LDAP_USER_BASE_DN:-}
+      LDAP_USERNAME_ATTRIBUTE: ${LDAP_USERNAME_ATTRIBUTE:-uid}
+      LDAP_SEARCH_BIND_DN: ${LDAP_SEARCH_BIND_DN:-}
+      LDAP_SEARCH_BIND_PASSWORD: ${LDAP_SEARCH_BIND_PASSWORD:-}
+    secrets:
+      - postgres_password
     volumes:
-      - $HOME/docker/guacamole/initdb:/docker-entrypoint-initdb.d
-      - $HOME/docker/guacamole/data:/var/lib/postgresql/data
+      # Guacamole configuration
+      - ${WORKING_DIR}/guacamole/webapp/config:/config
+      # Extension jars
+      - ${WORKING_DIR}/guacamole/webapp/extensions:/opt/guacamole/extensions:ro
+      # Custom libraries
+      - ${WORKING_DIR}/guacamole/webapp/lib:/opt/guacamole/lib:ro
+      # Logs
+      - ${WORKING_DIR}/guacamole/webapp/logs:/var/log/guacamole
+      # Shared drive for file transfers
+      - ${WORKING_DIR}/guacamole/shared:/shared
+    networks:
+      - guacamole_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      guacd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+
+  # Nginx Reverse Proxy (Optional but recommended for production)
+  nginx:
+    image: nginx:alpine
+    container_name: guacamole_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      # Nginx configuration
+      - ${WORKING_DIR}/guacamole/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${WORKING_DIR}/guacamole/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # SSL certificates
+      - ${WORKING_DIR}/guacamole/nginx/ssl:/etc/nginx/ssl:ro
+      # Logs
+      - ${WORKING_DIR}/guacamole/nginx/logs:/var/log/nginx
+      # Static content (optional)
+      - ${WORKING_DIR}/guacamole/nginx/html:/usr/share/nginx/html:ro
+    networks:
+      - guacamole_net
+    depends_on:
+      - guacamole
+    profiles:
+      - nginx  # Use 'docker compose --profile nginx up' to include nginx
+
+networks:
+  guacamole_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+secrets:
+  postgres_password:
+    file: ${WORKING_DIR}/guacamole/secrets/postgres_password.txt

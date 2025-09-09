@@ -1,0 +1,71 @@
+# Apache Guacamole Docker Setup - Git Ignore Rules
+# ================================================
+
+# Environment files with secrets (keep example files)
+.env
+!env.example
+
+# Secret files and credentials
+secrets/
+*.key
+*.pem
+*.p12
+*.jks
+*password*
+*secret*
+*token*
+
+# Docker generated files and logs
+docker-compose.override.yml
+*.log
+logs/
+
+# Data directories that will be created by Docker
+postgres/data/
+postgres/initdb/*.sql
+webapp/logs/
+guacd/logs/
+nginx/logs/
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.backup
+*~
+.DS_Store
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SSL certificates (except examples)
+*.crt
+*.cert
+ssl/
+certs/
+
+# Configuration files with potential secrets
+guacamole.properties
+postgresql.conf
+nginx.conf
+!*-example.*
+!*example*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Runtime directories
+run/
+tmp/
+cache/
+var/
