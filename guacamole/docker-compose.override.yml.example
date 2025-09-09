@@ -1,0 +1,92 @@
+# Docker Compose Override Example
+# ==============================
+# 
+# Copy this file to docker-compose.override.yml to customize the setup
+# for development or specific environments.
+# 
+# This file is automatically loaded by Docker Compose if present.
+
+services:
+  # Development overrides for PostgreSQL
+  postgres:
+    # Enable debug logging in development
+    environment:
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    # Expose PostgreSQL port for external access (development only)
+    ports:
+      - "5432:5432"
+    # Enable query logging (development only)
+    command: |
+      postgres
+      -c log_statement=all
+      -c log_destination=stderr
+      -c logging_collector=on
+      -c log_directory=/var/log/postgresql
+      -c log_filename=postgresql-%Y-%m-%d_%H%M%S.log
+    
+  # Development overrides for Guacamole daemon
+  guacd:
+    # Enable debug logging
+    environment:
+      GUACD_LOG_LEVEL: debug
+    # Expose guacd port for debugging (development only)
+    ports:
+      - "4822:4822"
+  
+  # Development overrides for Guacamole web app
+  guacamole:
+    # Enable development features
+    environment:
+      # Enable API access logging
+      GUACAMOLE_LOG_LEVEL: DEBUG
+      # Allow connections from any host (development only)
+      REMOTE_IP_VALVE_ENABLED: "true"
+      PROXY_ALLOWED_IPS_REGEX: ".*"
+    # Mount source code for development (if building from source)
+    # volumes:
+    #   - ./src:/opt/guacamole/src:ro
+  
+  # Additional development services
+  
+  # Database administration tool (development only)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: guacamole_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "8081:80"
+    networks:
+      - guacamole_net
+    depends_on:
+      - postgres
+    profiles:
+      - development
+  
+  # Log viewer (development only)
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: guacamole_logs
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    profiles:
+      - development
+
+# Additional networks for development
+networks:
+  # External network for connecting to other dev services
+  dev_network:
+    external: true
+    name: dev_network
+
+# Development volumes
+volumes:
+  # Named volume for faster development database resets
+  dev_postgres_data:
+    driver: local
