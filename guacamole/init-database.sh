@@ -43,7 +43,7 @@ echo "Creating temporary Guacamole container to extract SQL files..."
 TEMP_CONTAINER_ID=$(docker create guacamole/guacamole:latest)
 
 # Extract the PostgreSQL schema
-docker cp "$TEMP_CONTAINER_ID:/opt/guacamole/postgresql/schema/" "$INITDB_DIR/"
+docker cp "$TEMP_CONTAINER_ID:/opt/guacamole/extensions/guacamole-auth-jdbc/postgresql/schema/" "$INITDB_DIR/"
 
 # Clean up temporary container
 docker rm "$TEMP_CONTAINER_ID"
@@ -51,7 +51,8 @@ docker rm "$TEMP_CONTAINER_ID"
 # Rename schema files with proper ordering
 if [ -d "$INITDB_DIR/schema" ]; then
     mv "$INITDB_DIR/schema"/*.sql "$INITDB_DIR/"
-    rmdir "$INITDB_DIR/schema"
+    # Remove the schema directory and its contents
+    rm -rf "$INITDB_DIR/schema"
     
     # Ensure proper file ordering for initialization
     cd "$INITDB_DIR"
